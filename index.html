@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2d5f87">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>متابعة ميزانية شهرية</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fff;--fg:#111;--mut:#667;--btn:#2d5f87;--bd:#0f2a3f;--inp:#4a9bd0;--card:#f3f6f9;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14181d;--fg:#eef2f6;--mut:#9ab;--card:#1e252d}}
+:root[data-theme="dark"]{--bg:#14181d;--fg:#eef2f6;--mut:#9ab;--card:#1e252d}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:'Cairo',Tahoma,Arial,sans-serif;font-size:16px}
+#app{max-width:520px;margin:0 auto;padding:14px 16px 90px}
+h1{text-align:center;font-size:26px;margin:30px 0 28px}
+h2{text-align:center;font-size:22px;margin:8px 0 18px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+button{font-family:inherit;cursor:pointer}
+.big{background:var(--btn);color:#fff;border:3px solid var(--bd);border-radius:14px;height:66px;font-size:19px;font-weight:700;width:100%}
+.save{margin-top:16px}
+.del{background:#b3261e;margin-top:10px}
+.back{background:none;border:0;color:var(--btn);font-size:16px;font-weight:700;padding:6px 0}
+.f{margin-bottom:12px}
+label{display:block;font-size:15px;margin-bottom:4px;font-weight:700}
+input,select{width:100%;border:3px solid var(--c,var(--inp));border-radius:12px;padding:10px 12px;font:inherit;background:var(--bg);color:var(--fg);min-height:48px}
+input[readonly]{opacity:.75}
+.trip,.amtb{border-top:2px dashed var(--mut);padding-top:12px;margin-top:8px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{padding:2px 0}
+.item{background:var(--card);border-radius:12px;padding:12px;margin-bottom:10px}
+.mut,small{color:var(--mut)}
+.r{display:flex;justify-content:space-between;padding:10px 12px;background:var(--card);border-radius:10px;margin-bottom:8px}
+.r.t{background:var(--btn);color:#fff;font-weight:700;font-size:18px}
+#toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 20px;border-radius:20px;opacity:0;transition:.3s;pointer-events:none}
+#toast.on{opacity:1}
+h3{margin:18px 0 8px;font-size:17px}
+</style>
+</head>
+<body>
+<div id="app"></div><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s),v=i=>($('#f_'+i)||{}).value||'';
+const DAYS=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+const SEC={work:'العمل',stay:'الإقامة',trans:'المواصلات',pers:'م شخصية'};
+const STAT=['عمل','إجازة رسمية','عطلة أسبوعية','يوم إضافي','غياب'];
+let mem=[],st={salary:12000,allow:1000},rm=null;
+try{const d=JSON.parse(localStorage.getItem('bud')||'null');if(d){mem=d.e||[];Object.assign(st,d.s||{})}}catch(e){}
+const save=()=>{try{localStorage.setItem('bud',JSON.stringify({e:mem,s:st}))}catch(e){}};
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const dayName=s=>s?DAYS[new Date(s+'T00:00').getDay()]:'';
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const esc=s=>String(s??'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const fmt=n=>(+n||0).toLocaleString('en',{maximumFractionDigits:2});
+const tm=t=>{const[a,b]=t.split(':');return a*60+ +b};
+const toHM=h=>{const m=Math.round((+h||0)*60);return m?`${Math.floor(m/60)}:${pad(m%60)}`:''};
+const parseHM=s=>{s=String(s||'').trim();if(s.includes(':')){const[a,b]=s.split(':');return (+a||0)+(+b||0)/60}return +s||0};
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),1600)}
+const F=(l,id,t='text',val='',x='',c='')=>`<div class="f"><label>${l}</label><input id="f_${id}" type="${t}" value="${esc(val)}" ${x} ${c?`style="--c:${c}"`:''}></div>`;
+const S=(l,id,o,val,x='')=>`<div class="f"><label>${l}</label><select id="f_${id}" ${x}>${o.map(a=>`<option ${a==val?'selected':''}>${a}</option>`).join('')}</select></div>`;
+const hdr=(t,b='home()')=>`<button class="back" onclick="${b}">→ رجوع</button><h2>${t}</h2>`;
+
+function home(){
+ app.innerHTML=`<h1>متابعة ميزانية شهرية</h1><div class="grid">${[['work','العمل'],['stay','الإقامة'],['trans','المواصلات'],['pers','م شخصية'],['rev','مراجعة'],['edit','تعديل']].map(([k,t])=>`<button class="big" onclick="go('${k}')">${t}</button>`).join('')}</div>`}
+function go(k){k=='rev'?review():k=='edit'?editPage():entry(k);scrollTo(0,0)}
+
+function body(sec,e,ed){
+ const d=e.date||iso(new Date());
+ let h=F('اليوم','day','text',e.day||dayName(d),ed?'':'readonly')+F('التاريخ','date','date',d,ed?'oninput="dchg()"':'readonly');
+ if(sec=='work')h+=S('الحالة','status',STAT,e.status||'عمل','onchange="wc()"')
+  +F('عدد الساعات (ساعة:دقيقة)','hrs','text',toHM(e.hrs),'readonly')
+  +F('ساعات الإضافي','ot','number',e.ot||'','step="any" inputmode="decimal"','#d87a3a')
+  +F('حضور','in','time',e.in||'','oninput="wc()"','#5a9e44')
+  +F('انصراف','out','time',e.out||'','oninput="wc()"','#8a3a9a')
+  +F('تأخير / إذن (ساعة:دقيقة)','dl','text',toHM(e.dl)||'0:00','inputmode="numeric" placeholder="1:10"','#e0392d');
+ else if(sec=='trans'){h+=S('ذهاب / عودة','dir',['ذهاب','عودة'],e.dir);
+  const tr=(e.trips||[]).filter(t=>t.from||t.to||t.fare);tc=tr.length;
+  h+=`<div id="trips">${tr.map((t,i)=>tripHTML(t,i)).join('')}</div><button type="button" class="big" onclick="addTrip()">+ إضافة مواصلة</button>`}
+ else{const am=e.amts||(e.amt?[e.amt]:[]);ac=am.length;h+=`<div id="amts">${am.map((a,i)=>amtHTML(a,i)).join('')}</div><button type="button" class="big" onclick="addAmt()">+ إضافة مبلغ</button>`}
+ return h}
+let tc=0,ac=0;
+const amtHTML=(a,i)=>`<div class="amtb" data-a="${i}">${F('المبلغ المدفوع','amt'+i,'number',a||'','step="any" inputmode="decimal"')}<button type="button" class="back" onclick="this.parentNode.remove()">✕ حذف هذا المبلغ</button></div>`;
+const addAmt=()=>$('#amts').insertAdjacentHTML('beforeend',amtHTML(0,ac++));
+const tripHTML=(t,i)=>`<div class="trip" data-i="${i}"><div class="row2">${F('من','from'+i,'text',t.from)}${F('وقت التحرك','dep'+i,'time',t.dep)}${F('إلى','to'+i,'text',t.to)}${F('وقت الوصول','arr'+i,'time',t.arr)}</div>${F('الأجرة','fare'+i,'number',t.fare||'','step="any" inputmode="decimal"')}<button type="button" class="back" onclick="this.parentNode.remove()">✕ حذف هذه المواصلة</button></div>`;
+const addTrip=()=>$('#trips').insertAdjacentHTML('beforeend',tripHTML({},tc++));
+function wc(){
+ const i=v('in'),o=v('out');let h=0;
+ if(i&&o){let m=tm(o)-tm(i);if(m<0)m+=1440;h=m/60}
+ $('#f_hrs').value=h?toHM(h):'';
+ $('#f_dl').value=(v('status')=='عمل'&&h)?toHM(Math.max(0,8-h))||'0:00':'0:00'}
+function dchg(){$('#f_day').value=dayName(v('date'))}
+function collect(sec,id){
+ const o={id,sec,day:v('day'),date:v('date')};
+ if(sec=='work')Object.assign(o,{status:v('status'),hrs:parseHM(v('hrs')),ot:+v('ot')||0,in:v('in'),out:v('out'),dl:parseHM(v('dl'))});
+ else if(sec=='trans'){o.dir=v('dir');o.trips=[...document.querySelectorAll('.trip')].map(el=>{const i=el.dataset.i;return{from:v('from'+i),dep:v('dep'+i),to:v('to'+i),arr:v('arr'+i),fare:+v('fare'+i)||0}})}
+ else{o.amts=[...document.querySelectorAll('.amtb')].map(el=>+v('amt'+el.dataset.a)||0).filter(Boolean);o.amt=o.amts.reduce((a,b)=>a+b,0)}
+ return o}
+function commit(o){
+ if(!o.date){toast('اختر التاريخ');return false}
+ if((o.sec=='stay'||o.sec=='pers')&&!o.amt){toast('أضف مبلغاً');return false}
+ if(o.sec=='work'||o.sec=='trans')mem=mem.filter(x=>!(x.sec==o.sec&&x.date==o.date&&x.id!=o.id));
+ const i=mem.findIndex(x=>x.id==o.id);i>=0?mem[i]=o:mem.push(o);save();return true}
+
+function entry(sec){
+ const t=iso(new Date()),ex=(sec=='work'||sec=='trans')?mem.find(e=>e.sec==sec&&e.date==t):null;
+ app.innerHTML=hdr(SEC[sec])+`<div class="card">${body(sec,ex||{},false)}</div><button class="big save" onclick="if(commit(collect('${sec}','${ex?ex.id:uid()}'))){toast('تم الحفظ ✓');home()}">حفظ</button>`}
+
+const sum=e=>e.sec=='work'?`${e.status}${e.in?` · ${e.in} – ${e.out}`:''}${e.ot?` · إضافي ${e.ot}`:''}`
+ :e.sec=='trans'?`${e.dir} · ${fmt(e.trips.reduce((a,t)=>a+t.fare,0))} ج`:`${fmt(e.amt)} ج`;
+
+function editPage(){
+ app.innerHTML=hdr('تعديل')+F('التاريخ','fd','date','','oninput="lst()"')+S('اليوم','fdy',['الكل',...DAYS],'الكل','onchange="lst()"')+S('القسم','fs',['الكل',...Object.values(SEC)],'الكل','onchange="lst()"')+'<div id="lst"></div>';lst()}
+function lst(){
+ const d=v('fd'),dy=v('fdy'),s=v('fs');
+ const r=mem.filter(e=>(!d||e.date==d)&&(dy=='الكل'||e.day==dy)&&(s=='الكل'||SEC[e.sec]==s)).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100);
+ $('#lst').innerHTML=r.length?r.map(e=>`<div class="item" onclick="editOne('${e.id}')"><b>${SEC[e.sec]}</b> · ${e.day} ${e.date}<br><small>${sum(e)}</small></div>`).join(''):'<p class="mut">لا توجد بيانات مطابقة</p>'}
+function editOne(id){
+ const e=mem.find(x=>x.id==id);if(!e)return;
+ app.innerHTML=hdr('تعديل '+SEC[e.sec],'editPage()')+`<div class="card">${body(e.sec,e,true)}</div>
+ <button class="big save" onclick="if(commit(collect('${e.sec}','${id}'))){toast('تم الحفظ ✓');editPage()}">حفظ التعديل</button>
+ <button class="big del" id="dbtn" onclick="delOne('${id}')">حذف</button>`}
+function delOne(id){const b=$('#dbtn');if(b.dataset.s){mem=mem.filter(x=>x.id!=id);save();toast('تم الحذف');editPage()}else{b.dataset.s=1;b.textContent='اضغط مرة أخرى للتأكيد'}}
+
+function review(m){
+ const n=new Date();
+ if(!m){m=rm;if(!m){let y=n.getFullYear(),mo=n.getMonth()+1;if(n.getDate()>=26){mo++;if(mo>12){mo=1;y++}}m=`${y}-${pad(mo)}`}}
+ rm=m;const[y,mo]=m.split('-').map(Number);
+ const s=iso(new Date(y,mo-2,26)),en=`${m}-25`;
+ const R=mem.filter(e=>e.date>=s&&e.date<=en),W=R.filter(e=>e.sec=='work');
+ const c=k=>W.filter(e=>e.status==k).length,sm=(sec,f)=>R.filter(e=>e.sec==sec).reduce((a,e)=>a+f(e),0);
+ const wd=c('عمل')+c('يوم إضافي'),md=wd+c('إجازة رسمية')+c('عطلة أسبوعية');
+ const ot=W.reduce((a,e)=>a+e.ot,0),dl=W.reduce((a,e)=>a+e.dl,0);
+ const daily=st.salary/30,due=wd*daily,otv=ot*52.5,meal=md*33.33,ded=dl>8?(dl-8)*1.5*(daily/8):0;
+ const total=due+st.allow+meal+otv-ded;
+ const row=(a,b,t)=>`<div class="r${t?' t':''}"><span>${a}</span><span>${b}</span></div>`;
+ app.innerHTML=hdr('مراجعة')+F('شهر','m','month',m,'oninput="review(this.value)"')+`<p class="mut">من ${s} إلى ${en}</p>
+ <div class="row2">${F('الراتب الشهري','sal','number',st.salary,'onchange="st.salary=+this.value||0;save();review(rm)"')}${F('بدل مواصلات','al','number',st.allow,'onchange="st.allow=+this.value||0;save();review(rm)"')}</div>
+ ${row('أيام العمل',wd)}${row('إجازات رسمية / عطلات أسبوعية',c('إجازة رسمية')+' / '+c('عطلة أسبوعية'))}${row('بدل وجبة',fmt(meal))}
+ ${row('المستحق من الراتب',fmt(due))}${row('إجمالي السهرات ('+fmt(ot)+' س)',fmt(otv))}${row('التأخيرات ('+(toHM(dl)||'0:00')+')','- '+fmt(ded))}${row('إجمالي المرتب',fmt(total),1)}
+ <h3>ملخص إضافي (غير داخل في المرتب)</h3>${row('الإقامة',fmt(sm('stay',e=>e.amt)))}${row('أجرة المواصلات',fmt(sm('trans',e=>e.trips.reduce((a,t)=>a+t.fare,0))))}${row('م شخصية',fmt(sm('pers',e=>e.amt)))}
+ <p class="mut"><small>الأجر اليومي = الراتب ÷ 30 · الإضافي × 52.5 · الوجبة × 33.33 · أول 8 ساعات تأخير بلا خصم وما زاد يُخصم × 1.5 من أجر الساعة.</small></p>`}
+home();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
